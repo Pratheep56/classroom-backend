@@ -1,6 +1,7 @@
 import express from "express"
 import subjectRouter from "./routes/subjects";
 import cors from "cors";
+import securityMiddleware from "./middleware/security";
 
 const app = express()
 const PORT = 8000
@@ -13,6 +14,8 @@ app.use(cors({
     credentials: true
 }))
 app.use(express.json())
+
+app.use(securityMiddleware);
 
 app.use("/api/subjects", subjectRouter);
 app.get("/", (req, res) => {
