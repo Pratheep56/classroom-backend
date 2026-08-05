@@ -36,7 +36,7 @@ const securityMiddleware = async (req: Request, res: Response, next: NextFunctio
 
         const arcjetResponse: ArcjetNodeRequest = {
             headers: req.headers,
-            method: "POST",
+            method: req.method,
             url: req.originalUrl ?? req.url,
             socket: { remoteAddress: req.socket.remoteAddress ?? req.ip ?? "0.0.0.0"},
         }
