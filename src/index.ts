@@ -1,11 +1,11 @@
 import express from "express"
-import subjectRouter from "./routes/subjects";
+import subjectRouter from "./routes/subjects.js";
 import cors from "cors";
-import securityMiddleware from "./middleware/security";
+import securityMiddleware from "./middleware/security.js";
 import {toNodeHandler} from "better-auth/node";
-import {auth} from "./lib/auth";
-import usersRouter from "./routes/users"
-import classesRouter from "./routes/classes"
+import {auth} from "./lib/auth.js";
+import usersRouter from "./routes/users.js"
+import classesRouter from "./routes/classes.js"
 
 const app = express()
 const PORT = 8000
