@@ -15,7 +15,7 @@
       "description": "Local dev server"
     },
     {
-      "url": "",
+      "url": "https://classroom-backend-eln2.onrender.com",
       "description": "Production API server"
     }
   ],
@@ -24,7 +24,7 @@
       "cookieAuth": {
         "type": "apiKey",
         "in": "cookie",
-        "name": "better-auth.session"
+        "name": "better-auth.session_token"
       }
     },
     "schemas": {
