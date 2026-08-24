@@ -1,6 +1,6 @@
-import arcjet, {shield, detectBot, tokenBucket, slidingWindow} from "@arcjet/node";
+import arcjet, { shield, detectBot } from "@arcjet/node";
 
-if(!process.env.ARCJET_KEY && process.env.NODE_ENV !== "test") {
+if (!process.env.ARCJET_KEY && process.env.NODE_ENV !== "test") {
     throw new Error("ARCJET_KEY env is required");
 }
 
@@ -15,11 +15,6 @@ const aj = arcjet({
                 "CATEGORY:PREVIEW",
             ],
         }),
-        slidingWindow({
-            mode: "LIVE",
-            interval: "2s",
-            max: 5
-        })
     ],
 });
 
