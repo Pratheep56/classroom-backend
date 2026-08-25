@@ -15,6 +15,20 @@
       "when": 1785853108912,
       "tag": "0001_third_texas_twister",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787591273726,
+      "tag": "0002_noisy_trauma",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787591884079,
+      "tag": "0003_ancient_sauron",
+      "breakpoints": true
     }
   ]
 }

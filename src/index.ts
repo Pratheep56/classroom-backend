@@ -9,6 +9,7 @@ import classesRouter from "./routes/classes.js";
 import departmentsRouter from "./routes/departments.js";
 import enrollmentsRouter from "./routes/enrollments.js";
 import statsRouter from "./routes/stats.js";
+import assignmentsRouter from "./routes/assignments.js";
 
 const app = express();
 const PORT = 8000;
@@ -33,6 +34,7 @@ app.use("/api/classes", classesRouter);
 app.use("/api/departments", departmentsRouter);
 app.use("/api/enrollments", enrollmentsRouter);
 app.use("/api/stats", statsRouter);
+app.use("/api/assignments", assignmentsRouter);
 
 app.get("/", (req, res) => {
     res.send("Hello, welcome to the Classroom API!");
