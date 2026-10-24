@@ -3,6 +3,7 @@ import { and, desc, eq, getTableColumns, ilike, ne, or, sql } from "drizzle-orm"
 import { db } from "../db/index.js";
 import { classes, departments, enrollments, subjects } from "../db/schema/app.js";
 import { user } from "../db/schema/auth.js";
+import { stripEmailForStudents } from "../lib/columns.js";
 import { requireSession, requireRole } from "../middleware/auth.js";
 
 const router = express.Router();
@@ -12,8 +13,8 @@ router.get("/", async (req, res) => {
     try {
         const { search, page = 1, limit = 10 } = req.query;
 
-        const currentPage = Math.max(1, +page);
-        const limitPerPage = Math.max(1, +limit);
+        const currentPage = Math.max(1, parseInt(String(page), 10) || 1);
+        const limitPerPage = Math.min(Math.max(1, parseInt(String(limit), 10) || 10), 100);
         const offset = (currentPage - 1) * limitPerPage;
 
         const filterConditions = [];
@@ -316,8 +317,8 @@ router.get("/:id/subjects", async (req, res) => {
             return res.status(400).json({ error: "Invalid department id" });
         }
 
-        const currentPage = Math.max(1, +page);
-        const limitPerPage = Math.max(1, +limit);
+        const currentPage = Math.max(1, parseInt(String(page), 10) || 1);
+        const limitPerPage = Math.min(Math.max(1, parseInt(String(limit), 10) || 10), 100);
         const offset = (currentPage - 1) * limitPerPage;
 
         const countResult = await db
@@ -362,8 +363,8 @@ router.get("/:id/classes", async (req, res) => {
             return res.status(400).json({ error: "Invalid department id" });
         }
 
-        const currentPage = Math.max(1, +page);
-        const limitPerPage = Math.max(1, +limit);
+        const currentPage = Math.max(1, parseInt(String(page), 10) || 1);
+        const limitPerPage = Math.min(Math.max(1, parseInt(String(limit), 10) || 10), 100);
         const offset = (currentPage - 1) * limitPerPage;
 
         const countResult = await db
@@ -408,7 +409,7 @@ router.get("/:id/classes", async (req, res) => {
 });
 
 // 8. List users in a department by role with pagination
-router.get("/:id/users", async (req, res) => {
+router.get("/:id/users", requireSession, async (req, res) => {
     try {
         const departmentId = Number(req.params.id);
         const { role, page = 1, limit = 10 } = req.query;
@@ -421,8 +422,8 @@ router.get("/:id/users", async (req, res) => {
             return res.status(400).json({ error: "Invalid role" });
         }
 
-        const currentPage = Math.max(1, +page);
-        const limitPerPage = Math.max(1, +limit);
+        const currentPage = Math.max(1, parseInt(String(page), 10) || 1);
+        const limitPerPage = Math.min(Math.max(1, parseInt(String(limit), 10) || 10), 100);
         const offset = (currentPage - 1) * limitPerPage;
 
         const baseSelect = {
@@ -500,7 +501,7 @@ router.get("/:id/users", async (req, res) => {
                     .offset(offset);
 
         res.status(200).json({
-            data: usersList,
+            data: usersList.map(stripEmailForStudents(req.user?.role)),
             pagination: {
                 page: currentPage,
                 limit: limitPerPage,

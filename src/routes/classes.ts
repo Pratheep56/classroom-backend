@@ -1,16 +1,38 @@
 import express from "express";
-import { and, desc, eq, getTableColumns, ilike, or, sql } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, ilike, ne, or, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { classes, departments, enrollments, subjects } from "../db/schema/app.js";
 import { user } from "../db/schema/auth.js";
 import { requireSession, requireRole } from "../middleware/auth.js";
+import { userColumnsFor, stripEmailForStudents } from "../lib/columns.js";
+import { randomBytes } from "node:crypto";
 
 const router = express.Router();
+
+const CLASS_STATUSES = ["active", "inactive", "archived"] as const;
+const normalizeStatus = (value: unknown, fallback: (typeof CLASS_STATUSES)[number]) =>
+    CLASS_STATUSES.find((s) => s === value) ?? fallback;
+
+/**
+ * The invite code is the "key" students use to join, so only admins and the class's own teacher
+ * may see it. Everyone else gets the class without it.
+ */
+const withVisibleInviteCode = <T extends { inviteCode: string; teacherId: string }>(
+    row: T,
+    viewer?: { id: string; role: "admin" | "teacher" | "student" }
+) => {
+    const canSee = viewer && (viewer.role === "admin" || viewer.id === row.teacherId);
+    return canSee ? row : { ...row, inviteCode: undefined };
+};
+
+const INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const generateInviteCode = (length = 8) =>
+    Array.from(randomBytes(length), (b) => INVITE_ALPHABET[b % INVITE_ALPHABET.length]).join("");
 
 // GET all classes — public, with optional search, filtering and pagination
 router.get("/", async (req, res) => {
     try {
-        const { search, subject, teacher, page = 1, limit = 10 } = req.query;
+        const { search, subject, teacher, teacherId, status, page = 1, limit = 10 } = req.query;
 
         const currentPage = Math.max(1, parseInt(String(page), 10) || 1);
         const limitPerPage = Math.min(Math.max(1, parseInt(String(limit), 10) || 10), 100);
@@ -20,10 +42,9 @@ router.get("/", async (req, res) => {
 
         if (search) {
             filterConditions.push(
-                or(
-                    ilike(classes.name, `%${search}%`),
-                    ilike(classes.inviteCode, `%${search}%`)
-                )
+                req.user?.role === "admin"
+                    ? or(ilike(classes.name, `%${search}%`), ilike(classes.inviteCode, `%${search}%`))
+                    : ilike(classes.name, `%${search}%`)
             );
         }
 
@@ -36,6 +57,16 @@ router.get("/", async (req, res) => {
             const teacherPattern = `%${String(teacher).replace(/[%_]/g, "\\$&")}%`;
             filterConditions.push(ilike(user.name, teacherPattern));
         }
+
+        if (teacherId) {
+            filterConditions.push(eq(classes.teacherId, String(teacherId)));
+        }
+
+        // Archived classes are hidden from the catalogue unless explicitly requested
+        const requestedStatus = CLASS_STATUSES.find((s) => s === status);
+        filterConditions.push(
+            requestedStatus ? eq(classes.status, requestedStatus) : ne(classes.status, "archived")
+        );
 
         const whereClause = filterConditions.length > 0 ? and(...filterConditions) : undefined;
 
@@ -52,7 +83,7 @@ router.get("/", async (req, res) => {
             .select({
                 ...getTableColumns(classes),
                 subject: { ...getTableColumns(subjects) },
-                teacher: { ...getTableColumns(user) },
+                teacher: userColumnsFor(req),
                 department: { ...getTableColumns(departments) },
                 enrolledCount: sql<number>`(select count(*) from ${enrollments} where ${enrollments.classId} = ${classes.id})`,
             })
@@ -66,7 +97,7 @@ router.get("/", async (req, res) => {
             .offset(offset);
 
         res.status(200).json({
-            data: classesList,
+            data: classesList.map((c) => withVisibleInviteCode(c, req.user)),
             pagination: {
                 page: currentPage,
                 limit: limitPerPage,
@@ -94,7 +125,7 @@ router.get("/:id", async (req, res) => {
                 ...getTableColumns(classes),
                 subject: { ...getTableColumns(subjects) },
                 department: { ...getTableColumns(departments) },
-                teacher: { ...getTableColumns(user) },
+                teacher: userColumnsFor(req),
                 enrolledCount: sql<number>`(select count(*) from ${enrollments} where ${enrollments.classId} = ${classes.id})`,
             })
             .from(classes)
@@ -107,7 +138,7 @@ router.get("/:id", async (req, res) => {
             return res.status(404).json({ error: "Class not found." });
         }
 
-        res.status(200).json({ data: classDetails });
+        res.status(200).json({ data: withVisibleInviteCode(classDetails, req.user) });
     } catch (e) {
         console.error(`GET /classes/:id error: ${e}`);
         res.status(500).json({ error: "Failed to get class" });
@@ -115,7 +146,7 @@ router.get("/:id", async (req, res) => {
 });
 
 // List users in a class by role with pagination
-router.get("/:id/users", async (req, res) => {
+router.get("/:id/users", requireSession, async (req, res) => {
     try {
         const classId = Number(req.params.id);
         const { role, page = 1, limit = 10 } = req.query;
@@ -128,8 +159,8 @@ router.get("/:id/users", async (req, res) => {
             return res.status(400).json({ error: "Invalid role" });
         }
 
-        const currentPage = Math.max(1, +page);
-        const limitPerPage = Math.max(1, +limit);
+        const currentPage = Math.max(1, parseInt(String(page), 10) || 1);
+        const limitPerPage = Math.min(Math.max(1, parseInt(String(limit), 10) || 10), 100);
         const offset = (currentPage - 1) * limitPerPage;
 
         const baseSelect = {
@@ -193,7 +224,7 @@ router.get("/:id/users", async (req, res) => {
                       .offset(offset);
 
         res.status(200).json({
-            data: usersList,
+            data: usersList.map(stripEmailForStudents(req.user?.role)),
             pagination: {
                 page: currentPage,
                 limit: limitPerPage,
@@ -271,9 +302,10 @@ router.post("/", requireSession, requireRole("teacher", "admin"), async (req, re
             return res.status(400).json({ error: "Capacity must be at least 1" });
         }
 
-        const validStatus = status === "inactive" ? "inactive" : "active";
+        const validStatus = normalizeStatus(status, "active");
 
-        const generatedInviteCode = Math.random().toString(36).substring(2, 9).toUpperCase();
+        // Cryptographically random, 8 chars from an unambiguous alphabet (no 0/O/1/I)
+        const generatedInviteCode = generateInviteCode();
 
         const [createdClass] = await db
             .insert(classes)
@@ -375,7 +407,7 @@ router.put("/:id", requireSession, requireRole("teacher", "admin"), async (req, 
         }
 
         if (status !== undefined) {
-            updateData.status = status === "inactive" ? "inactive" : "active";
+            updateData.status = normalizeStatus(status, "active");
         }
 
         if (bannerUrl !== undefined) updateData.bannerUrl = bannerUrl;

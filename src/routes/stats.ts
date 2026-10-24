@@ -4,6 +4,7 @@ import { db } from "../db/index.js";
 import { classes, departments, enrollments, subjects } from "../db/schema/app.js";
 import { user } from "../db/schema/auth.js";
 import { requireSession } from "../middleware/auth.js";
+import { publicUserColumns, userColumnsFor } from "../lib/columns.js";
 
 const router = express.Router();
 
@@ -122,7 +123,7 @@ router.get("/student", requireSession, async (req, res) => {
 router.get("/latest", async (req, res) => {
     try {
         const { limit = 5 } = req.query;
-        const limitPerPage = Math.max(1, +limit);
+        const limitPerPage = Math.min(Math.max(1, parseInt(String(limit), 10) || 5), 50);
 
         const [latestClasses, latestTeachers] = await Promise.all([
             db
@@ -131,9 +132,7 @@ router.get("/latest", async (req, res) => {
                     subject: {
                         ...getTableColumns(subjects),
                     },
-                    teacher: {
-                        ...getTableColumns(user),
-                    },
+                    teacher: userColumnsFor(req),
                 })
                 .from(classes)
                 .leftJoin(subjects, eq(classes.subjectId, subjects.id))
@@ -141,7 +140,7 @@ router.get("/latest", async (req, res) => {
                 .orderBy(desc(classes.createdAt))
                 .limit(limitPerPage),
             db
-                .select()
+                .select({ ...publicUserColumns, createdAt: user.createdAt })
                 .from(user)
                 .where(eq(user.role, "teacher"))
                 .orderBy(desc(user.createdAt))

@@ -4,8 +4,35 @@ import { db } from "../db/index.js";
 import { classes, departments, enrollments, subjects } from "../db/schema/app.js";
 import { user } from "../db/schema/auth.js";
 import { requireSession } from "../middleware/auth.js";
+import { memberUserColumns } from "../lib/columns.js";
 
 const router = express.Router();
+
+type EnrollResult = "ok" | "already" | "full";
+
+/**
+ * Enrolls a student while holding a row lock on the class, so two students joining the last
+ * seat at the same time cannot both pass the capacity check.
+ */
+const enrollWithCapacity = (classId: number, capacity: number | null, studentId: string): Promise<EnrollResult> =>
+    db.transaction(async (tx) => {
+        await tx.select({ id: classes.id }).from(classes).where(eq(classes.id, classId)).for("update");
+
+        const [existing] = await tx
+            .select()
+            .from(enrollments)
+            .where(and(eq(enrollments.classId, classId), eq(enrollments.studentId, studentId)));
+        if (existing) return "already";
+
+        const [{ count } = { count: 0 }] = await tx
+            .select({ count: sql<number>`count(*)` })
+            .from(enrollments)
+            .where(eq(enrollments.classId, classId));
+        if (capacity && Number(count) >= capacity) return "full";
+
+        await tx.insert(enrollments).values({ classId, studentId });
+        return "ok";
+    });
 
 const getEnrollmentDetails = async (classId: number, studentId: string) => {
     const [enrollment] = await db
@@ -21,9 +48,7 @@ const getEnrollmentDetails = async (classId: number, studentId: string) => {
             department: {
                 ...getTableColumns(departments),
             },
-            teacher: {
-                ...getTableColumns(user),
-            },
+            teacher: memberUserColumns,
         })
         .from(enrollments)
         .leftJoin(classes, eq(enrollments.classId, classes.id))
@@ -85,9 +110,7 @@ router.get("/my", requireSession, async (req, res) => {
                 department: {
                     ...getTableColumns(departments),
                 },
-                teacher: {
-                    ...getTableColumns(user),
-                },
+                teacher: memberUserColumns,
             })
             .from(enrollments)
             .leftJoin(classes, eq(enrollments.classId, classes.id))
@@ -146,43 +169,22 @@ router.post("/join", requireSession, async (req, res) => {
             });
         }
 
-        // 3. Check if student is already enrolled
-        const [existingEnrollment] = await db
-            .select()
-            .from(enrollments)
-            .where(
-                and(
-                    eq(enrollments.classId, classRecord.id),
-                    eq(enrollments.studentId, studentId)
-                )
-            );
+        // 3-5. Atomically check duplicate + capacity and create the enrollment
+        const result = await enrollWithCapacity(classRecord.id, classRecord.capacity, studentId);
 
-        if (existingEnrollment) {
+        if (result === "already") {
             return res.status(409).json({
                 error: "Already Enrolled",
                 message: "You are already enrolled in this class.",
             });
         }
 
-        // 4. Capacity validation: count current enrollments
-        const [countResult] = await db
-            .select({ count: sql<number>`count(*)` })
-            .from(enrollments)
-            .where(eq(enrollments.classId, classRecord.id));
-
-        const currentEnrolled = Number(countResult?.count ?? 0);
-        if (classRecord.capacity && currentEnrolled >= classRecord.capacity) {
+        if (result === "full") {
             return res.status(400).json({
                 error: "Class Full",
                 message: `This class has reached its maximum capacity (${classRecord.capacity} students).`,
             });
         }
-
-        // 5. Create enrollment
-        await db.insert(enrollments).values({
-            classId: classRecord.id,
-            studentId,
-        });
 
         // 6. Return enrollment details
         const enrollment = await getEnrollmentDetails(classRecord.id, studentId);
@@ -233,35 +235,15 @@ router.post("/", requireSession, async (req, res) => {
             return res.status(400).json({ error: "Cannot enroll in an inactive class" });
         }
 
-        const [existingEnrollment] = await db
-            .select()
-            .from(enrollments)
-            .where(
-                and(
-                    eq(enrollments.classId, cIdNum),
-                    eq(enrollments.studentId, studentId)
-                )
-            );
+        const result = await enrollWithCapacity(cIdNum, classRecord.capacity, studentId);
 
-        if (existingEnrollment) {
+        if (result === "already") {
             return res.status(409).json({ error: "Student is already enrolled in this class" });
         }
 
-        // Capacity check
-        const [countResult] = await db
-            .select({ count: sql<number>`count(*)` })
-            .from(enrollments)
-            .where(eq(enrollments.classId, cIdNum));
-
-        const currentEnrolled = Number(countResult?.count ?? 0);
-        if (classRecord.capacity && currentEnrolled >= classRecord.capacity) {
+        if (result === "full") {
             return res.status(400).json({ error: "Class is full. Capacity has been reached." });
         }
-
-        await db.insert(enrollments).values({
-            classId: cIdNum,
-            studentId,
-        });
 
         const enrollment = await getEnrollmentDetails(cIdNum, studentId);
 

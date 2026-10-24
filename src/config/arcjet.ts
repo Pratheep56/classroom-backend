@@ -13,6 +13,7 @@ const aj = arcjet({
             allow: [
                 "CATEGORY:SEARCH_ENGINE",
                 "CATEGORY:PREVIEW",
+                "CATEGORY:MONITOR", // uptime monitors (e.g. Render health checks)
             ],
         }),
     ],

@@ -21,6 +21,15 @@ export const requireSession = async (
             return res.status(401).json({ error: "Unauthorized", message: "You must be logged in." });
         }
 
+        // A suspended account keeps a valid cookie until it expires, so check the flag on every request.
+        if ((session.user as unknown as { status?: string }).status === "suspended") {
+            return res.status(403).json({
+                error: "Forbidden",
+                code: "ACCOUNT_SUSPENDED",
+                message: "This account has been suspended. Contact an administrator.",
+            });
+        }
+
         req.user = {
             id: session.user.id,
             role: (session.user as unknown as { role: "admin" | "teacher" | "student" }).role ?? "student",

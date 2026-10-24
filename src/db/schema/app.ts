@@ -94,6 +94,20 @@ export const submissions = pgTable('submissions', {
     index('submissions_student_id_idx').on(table.studentId),
 ]);
 
+// Who did what to whom: every role, status and teacher-request change made by an admin.
+export const auditLog = pgTable('audit_log', {
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    // Null when the change came from the create-admin script rather than a signed-in admin.
+    actorId: text('actor_id').references(() => user.id, { onDelete: 'set null' }),
+    action: varchar('action', { length: 50 }).notNull(),
+    targetId: text('target_id').references(() => user.id, { onDelete: 'set null' }),
+    // Names/emails are copied in so the log still reads correctly after an account is deleted.
+    detail: jsonb('detail').$type<Record<string, unknown>>().default({}).notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+    index('audit_log_created_at_idx').on(table.createdAt),
+]);
+
 // Relationships
 export const departmentRelations = relations(departments, ({ many }) => ({ subjects: many(subjects) }));
 
@@ -162,6 +176,8 @@ export type NewEnrollment = typeof enrollments.$inferInsert;
 
 export type Assignment = typeof assignments.$inferSelect;
 export type NewAssignment = typeof assignments.$inferInsert;
+
+export type AuditLogEntry = typeof auditLog.$inferSelect;
 
 export type Submission = typeof submissions.$inferSelect;
 export type NewSubmission = typeof submissions.$inferInsert;

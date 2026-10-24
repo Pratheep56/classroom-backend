@@ -2,6 +2,8 @@ import { pgTable, text, timestamp, boolean, pgEnum, index } from "drizzle-orm/pg
 import { relations } from "drizzle-orm";
 
 export const roleEnum = pgEnum("role", ["student", "teacher", "admin"]);
+// "suspended" accounts are signed out and refused by requireSession until an admin reactivates them.
+export const accountStatusEnum = pgEnum("account_status", ["active", "suspended"]);
 
 const timestamps = {
     createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -15,6 +17,10 @@ export const user = pgTable("user", {
     emailVerified: boolean("email_verified").notNull(),
     image: text("image"),
     role: roleEnum("role").default("student").notNull(),
+    status: accountStatusEnum("status").default("active").notNull(),
+    // A student who asked to become a teacher. Cleared when an admin approves or rejects.
+    teacherRequestedAt: timestamp("teacher_requested_at"),
+    teacherRequestNote: text("teacher_request_note"),
     imageCldPubId: text("image_cld_pub_id"),
     ...timestamps
 });
